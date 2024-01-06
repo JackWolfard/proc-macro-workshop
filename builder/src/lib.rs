@@ -8,27 +8,45 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
     let name = input.ident;
     let builder = format_ident!("{}Builder", name);
-    let builder_fields_decl = fields(&input.data).map(builder_field_decl);
-    let builder_fields_none = fields(&input.data).map(builder_field_none);
+    let fields_decl = fields(&input.data).map(field_decl);
+    let fields_none = fields(&input.data).map(field_none);
+    let fields_setter = fields(&input.data).map(field_setter);
 
     let expanded = quote! {
         impl #name {
             pub fn builder() -> #builder {
                 #builder {
-                    #(#builder_fields_none),*
+                    #(#fields_none),*
                 }
             }
         }
 
         pub struct #builder {
-            #(#builder_fields_decl),*
+            #(#fields_decl),*
+        }
+
+        impl #builder {
+            #(#fields_setter)*
         }
     };
 
     expanded.into()
 }
 
-fn builder_field_decl(field: &Field) -> TokenStream {
+fn field_setter(field: &Field) -> TokenStream {
+    let ty = &field.ty;
+    if let Some(name) = &field.ident {
+        return quote! {
+            fn #name(&mut self, #name: #ty) -> &mut Self {
+                self.#name = Some(#name);
+                self
+            }
+        };
+    }
+    unimplemented!();
+}
+
+fn field_decl(field: &Field) -> TokenStream {
     let ty = &field.ty;
     if let Some(name) = &field.ident {
         return quote! {
@@ -38,7 +56,7 @@ fn builder_field_decl(field: &Field) -> TokenStream {
     unimplemented!();
 }
 
-fn builder_field_none(field: &Field) -> TokenStream {
+fn field_none(field: &Field) -> TokenStream {
     if let Some(name) = &field.ident {
         return quote! {
             #name: None
