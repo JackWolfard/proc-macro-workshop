@@ -1,6 +1,9 @@
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
-use syn::{parse_macro_input, Data, DeriveInput, Field, Fields, LitStr};
+use syn::{
+    parse_macro_input, AngleBracketedGenericArguments, Data, DeriveInput, Field, Fields,
+    GenericArgument, LitStr, PathArguments, Type,
+};
 
 #[proc_macro_derive(Builder)]
 pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
@@ -40,8 +43,38 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     expanded.into()
 }
 
+fn get_option_ty(field: &Field) -> Option<&syn::Type> {
+    if let Type::Path(ty) = &field.ty {
+        if ty.path.segments.len() != 1 {
+            return None;
+        }
+        let segment = ty.path.segments.first().unwrap();
+        if segment.ident.to_string() != "Option" {
+            return None;
+        }
+        if let PathArguments::AngleBracketed(AngleBracketedGenericArguments { args, .. }) =
+            &segment.arguments
+        {
+            if args.len() != 1 {
+                return None;
+            }
+            let generic_arg = args.first().unwrap();
+            if let GenericArgument::Type(ty) = generic_arg {
+                return Some(ty);
+            }
+        }
+    }
+    None
+}
+
 fn build_field(field: &Field) -> TokenStream {
+    let is_optional = get_option_ty(field).is_some();
     if let Some(name) = &field.ident {
+        if is_optional {
+            return quote! {
+                #name: self.#name.clone()
+            };
+        }
         let err_msg = LitStr::new(
             &format!("expected '{}' to have been set", name),
             name.span(),
@@ -54,7 +87,7 @@ fn build_field(field: &Field) -> TokenStream {
 }
 
 fn field_setter(field: &Field) -> TokenStream {
-    let ty = &field.ty;
+    let ty = get_option_ty(field).unwrap_or(&field.ty);
     if let Some(name) = &field.ident {
         return quote! {
             fn #name(&mut self, #name: #ty) -> &mut Self {
@@ -67,7 +100,7 @@ fn field_setter(field: &Field) -> TokenStream {
 }
 
 fn field_decl(field: &Field) -> TokenStream {
-    let ty = &field.ty;
+    let ty = get_option_ty(field).unwrap_or(&field.ty);
     if let Some(name) = &field.ident {
         return quote! {
             #name: Option<#ty>
