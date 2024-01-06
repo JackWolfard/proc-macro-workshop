@@ -11,7 +11,7 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let fields_decl = fields(&input.data).map(field_decl);
     let fields_none = fields(&input.data).map(field_none);
     let fields_setter = fields(&input.data).map(field_setter);
-    let built_fields = fields(&input.data).map(build_field);
+    let build_fields = fields(&input.data).map(build_field);
 
     let expanded = quote! {
         impl #name {
@@ -29,7 +29,7 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         impl #builder {
             pub fn build(&mut self) -> Result<#name, Box<dyn std::error::Error>> {
                 Ok(#name {
-                    #(#built_fields),*
+                    #(#build_fields),*
                 })
             }
 
