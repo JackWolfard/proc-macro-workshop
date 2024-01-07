@@ -2,21 +2,7 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{parse_macro_input, Data, DeriveInput, Field, Fields, LitStr};
 
-struct Test {
-    x: i32,
-    y: i32,
-}
-
-impl std::fmt::Debug for Test {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        f.debug_struct("Test")
-            .field("x", &self.x)
-            .field("y", &self.y)
-            .finish()
-    }
-}
-
-#[proc_macro_derive(CustomDebug)]
+#[proc_macro_derive(CustomDebug, attributes(debug))]
 pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
@@ -47,9 +33,33 @@ fn fields(data: &Data) -> impl Iterator<Item = &Field> {
     }
 }
 
+fn debug_attr(field: &Field) -> Option<LitStr> {
+    if field.attrs.len() != 1 {
+        return None;
+    }
+    let attr = field.attrs.first().unwrap();
+    if !attr.path().is_ident("debug") {
+        return None;
+    }
+    if let syn::Meta::NameValue(meta) = &attr.meta {
+        if let syn::Expr::Lit(expr) = &meta.value {
+            if let syn::Lit::Str(lit_str) = &expr.lit {
+                return Some(lit_str.clone());
+            }
+        }
+    }
+    None
+}
+
 fn field_debug(field: &Field) -> TokenStream {
+    let debug = debug_attr(field);
     if let Some(name) = &field.ident {
         let lit_name = LitStr::new(&name.to_string(), name.span());
+        if let Some(debug) = debug {
+            return quote! {
+                .field(#lit_name, &std::format_args!(#debug, &self.#name))
+            };
+        }
         return quote! {
             .field(#lit_name, &self.#name)
         };
