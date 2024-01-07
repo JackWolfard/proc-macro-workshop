@@ -21,7 +21,7 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     }
 
     let fields_decl = fields(&input.data).map(field_decl);
-    let fields_none = fields(&input.data).map(field_none);
+    let fields_default = fields(&input.data).map(field_default);
     let fields_setter = fields(&input.data).filter_map(field_setter);
     let fields_each_setter = fields(&input.data).filter_map(field_each_setter);
     let build_fields = fields(&input.data).map(build_field);
@@ -30,7 +30,7 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         impl #name {
             pub fn builder() -> #builder {
                 #builder {
-                    #(#fields_none),*
+                    #(#fields_default),*
                 }
             }
         }
@@ -53,28 +53,14 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     .into()
 }
 
-fn get_inner_ty<'a>(field: &'a Field, outer: &str) -> Option<&'a syn::Type> {
-    if let Type::Path(ty) = &field.ty {
-        if ty.path.segments.len() != 1 {
-            return None;
-        }
-        let segment = ty.path.segments.first().unwrap();
-        if segment.ident != outer {
-            return None;
-        }
-        if let PathArguments::AngleBracketed(AngleBracketedGenericArguments { args, .. }) =
-            &segment.arguments
-        {
-            if args.len() != 1 {
-                return None;
-            }
-            let generic_arg = args.first().unwrap();
-            if let GenericArgument::Type(ty) = generic_arg {
-                return Some(ty);
-            }
-        }
+fn fields(data: &Data) -> impl Iterator<Item = &Field> {
+    match data {
+        Data::Struct(data) => match &data.fields {
+            Fields::Named(fields) => fields.named.iter(),
+            _ => unimplemented!(),
+        },
+        _ => unimplemented!(),
     }
-    None
 }
 
 fn has_bad_attribute(field: &Field) -> Option<TokenStream> {
@@ -113,6 +99,70 @@ fn get_builder_attr_each_detail(field: &Field) -> syn::Result<Option<LitStr>> {
     Ok(s)
 }
 
+fn get_inner_ty<'a>(field: &'a Field, outer: &str) -> Option<&'a syn::Type> {
+    if let Type::Path(ty) = &field.ty {
+        if ty.path.segments.len() != 1 {
+            return None;
+        }
+        let segment = ty.path.segments.first().unwrap();
+        if segment.ident != outer {
+            return None;
+        }
+        if let PathArguments::AngleBracketed(AngleBracketedGenericArguments { args, .. }) =
+            &segment.arguments
+        {
+            if args.len() != 1 {
+                return None;
+            }
+            let generic_arg = args.first().unwrap();
+            if let GenericArgument::Type(ty) = generic_arg {
+                return Some(ty);
+            }
+        }
+    }
+    None
+}
+
+fn field_decl(field: &Field) -> TokenStream {
+    let ty = get_inner_ty(field, "Option").unwrap_or(&field.ty);
+    if let Some(name) = &field.ident {
+        return quote! {
+            #name: std::option::Option<#ty>
+        };
+    }
+    unimplemented!();
+}
+
+fn field_default(field: &Field) -> TokenStream {
+    if let Some(name) = &field.ident {
+        if get_builder_attr_each(field).is_some() {
+            return quote! {
+                #name: std::option::Option::Some(std::vec::Vec::new())
+            };
+        }
+        return quote! {
+            #name: std::option::Option::None
+        };
+    }
+    unimplemented!();
+}
+
+fn field_setter(field: &Field) -> Option<TokenStream> {
+    let name = field.ident.as_ref()?;
+    if let Some(lit) = get_builder_attr_each(field) {
+        if *name == lit.value() {
+            return None;
+        }
+    }
+    let ty = get_inner_ty(field, "Option").unwrap_or(&field.ty);
+    Some(quote! {
+        fn #name(&mut self, #name: #ty) -> &mut Self {
+            self.#name = std::option::Option::Some(#name);
+            self
+        }
+    })
+}
+
 fn field_each_setter(field: &Field) -> Option<TokenStream> {
     let name = field.ident.as_ref()?;
     let ty = get_inner_ty(field, "Vec")?;
@@ -147,54 +197,4 @@ fn build_field(field: &Field) -> TokenStream {
         };
     }
     unimplemented!();
-}
-
-fn field_setter(field: &Field) -> Option<TokenStream> {
-    let name = field.ident.as_ref()?;
-    if let Some(lit) = get_builder_attr_each(field) {
-        if *name == lit.value() {
-            return None;
-        }
-    }
-    let ty = get_inner_ty(field, "Option").unwrap_or(&field.ty);
-    Some(quote! {
-        fn #name(&mut self, #name: #ty) -> &mut Self {
-            self.#name = std::option::Option::Some(#name);
-            self
-        }
-    })
-}
-
-fn field_decl(field: &Field) -> TokenStream {
-    let ty = get_inner_ty(field, "Option").unwrap_or(&field.ty);
-    if let Some(name) = &field.ident {
-        return quote! {
-            #name: std::option::Option<#ty>
-        };
-    }
-    unimplemented!();
-}
-
-fn field_none(field: &Field) -> TokenStream {
-    if let Some(name) = &field.ident {
-        if get_builder_attr_each(field).is_some() {
-            return quote! {
-                #name: std::option::Option::Some(std::vec::Vec::new())
-            };
-        }
-        return quote! {
-            #name: std::option::Option::None
-        };
-    }
-    unimplemented!();
-}
-
-fn fields(data: &Data) -> impl Iterator<Item = &Field> {
-    match data {
-        Data::Struct(data) => match &data.fields {
-            Fields::Named(fields) => fields.named.iter(),
-            _ => unimplemented!(),
-        },
-        _ => unimplemented!(),
-    }
 }
