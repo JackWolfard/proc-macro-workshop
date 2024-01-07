@@ -11,13 +11,22 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
     let name = input.ident;
     let builder = format_ident!("{}Builder", name);
+
+    let bad_attrs: Vec<TokenStream> = fields(&input.data).filter_map(has_bad_attribute).collect();
+    if bad_attrs.len() > 0 {
+        return quote! {
+            #(#bad_attrs)*
+        }
+        .into();
+    }
+
     let fields_decl = fields(&input.data).map(field_decl);
     let fields_none = fields(&input.data).map(field_none);
     let fields_setter = fields(&input.data).filter_map(field_setter);
     let fields_each_setter = fields(&input.data).filter_map(field_each_setter);
     let build_fields = fields(&input.data).map(build_field);
 
-    let expanded = quote! {
+    quote! {
         impl #name {
             pub fn builder() -> #builder {
                 #builder {
@@ -40,9 +49,8 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             #(#fields_setter)*
             #(#fields_each_setter)*
         }
-    };
-
-    expanded.into()
+    }
+    .into()
 }
 
 fn get_inner_ty<'a>(field: &'a Field, outer: &str) -> Option<&'a syn::Type> {
@@ -69,14 +77,26 @@ fn get_inner_ty<'a>(field: &'a Field, outer: &str) -> Option<&'a syn::Type> {
     None
 }
 
+fn has_bad_attribute(field: &Field) -> Option<TokenStream> {
+    get_builder_attr_each_detail(field)
+        .err()
+        .map(syn::Error::into_compile_error)
+}
+
 fn get_builder_attr_each(field: &Field) -> Option<LitStr> {
-    get_inner_ty(field, "Vec")?;
+    get_builder_attr_each_detail(field).ok().flatten()
+}
+
+fn get_builder_attr_each_detail(field: &Field) -> syn::Result<Option<LitStr>> {
+    if get_inner_ty(field, "Vec").is_none() {
+        return Ok(None);
+    }
     if field.attrs.len() != 1 {
-        return None;
+        return Ok(None);
     }
     let attr = field.attrs.first().unwrap();
     if !attr.path().is_ident("builder") {
-        return None;
+        return Ok(None);
     }
 
     let mut s: Option<LitStr> = None;
@@ -86,12 +106,11 @@ fn get_builder_attr_each(field: &Field) -> Option<LitStr> {
             s = Some(value.parse::<LitStr>()?);
             Ok(())
         } else {
-            Err(meta.error("unsupported attribute"))
+            Err(meta.error("expected `builder(each = \"...\")`"))
         }
-    })
-    .unwrap();
+    })?;
 
-    s
+    Ok(s)
 }
 
 fn field_each_setter(field: &Field) -> Option<TokenStream> {
@@ -163,7 +182,6 @@ fn field_none(field: &Field) -> TokenStream {
                 #name: Some(Vec::new())
             };
         }
-
         return quote! {
             #name: None
         };
