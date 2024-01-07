@@ -40,8 +40,8 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         }
 
         impl #builder {
-            pub fn build(&mut self) -> Result<#name, Box<dyn std::error::Error>> {
-                Ok(#name {
+            pub fn build(&mut self) -> std::result::Result<#name, std::boxed::Box<dyn std::error::Error>> {
+                std::result::Result::Ok(#name {
                     #(#build_fields),*
                 })
             }
@@ -120,10 +120,10 @@ fn field_each_setter(field: &Field) -> Option<TokenStream> {
     let item_name = Ident::new(&lit.value(), lit.span());
     Some(quote! {
         fn #item_name(&mut self, item: #ty) -> &mut Self {
-            if let Some(ref mut #name) = self.#name {
+            if let std::option::Option::Some(ref mut #name) = self.#name {
                 #name.push(item);
             } else {
-                self.#name = Some(vec![item]);
+                self.#name = std::option::Option::Some(std::vec![item]);
             }
             self
         }
@@ -159,7 +159,7 @@ fn field_setter(field: &Field) -> Option<TokenStream> {
     let ty = get_inner_ty(field, "Option").unwrap_or(&field.ty);
     Some(quote! {
         fn #name(&mut self, #name: #ty) -> &mut Self {
-            self.#name = Some(#name);
+            self.#name = std::option::Option::Some(#name);
             self
         }
     })
@@ -169,7 +169,7 @@ fn field_decl(field: &Field) -> TokenStream {
     let ty = get_inner_ty(field, "Option").unwrap_or(&field.ty);
     if let Some(name) = &field.ident {
         return quote! {
-            #name: Option<#ty>
+            #name: std::option::Option<#ty>
         };
     }
     unimplemented!();
@@ -179,11 +179,11 @@ fn field_none(field: &Field) -> TokenStream {
     if let Some(name) = &field.ident {
         if get_builder_attr_each(field).is_some() {
             return quote! {
-                #name: Some(Vec::new())
+                #name: std::option::Option::Some(std::vec::Vec::new())
             };
         }
         return quote! {
-            #name: None
+            #name: std::option::Option::None
         };
     }
     unimplemented!();
