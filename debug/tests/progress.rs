@@ -1,7 +1,7 @@
 #[test]
 fn tests() {
     let t = trybuild::TestCases::new();
-    //t.pass("examples/01-parse.rs");
+    t.pass("examples/01-parse.rs");
     //t.pass("examples/02-impl-debug.rs");
     //t.pass("examples/03-custom-format.rs");
     //t.pass("examples/04-type-parameter.rs");
