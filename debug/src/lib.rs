@@ -1,18 +1,35 @@
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{
-    parse_macro_input, parse_quote, AngleBracketedGenericArguments, Data, DeriveInput, Field,
-    Fields, GenericArgument, GenericParam, Generics, Ident, LitStr, PathArguments, Type, TypePath,
+    parse_macro_input, parse_quote, AngleBracketedGenericArguments, Attribute, Data, DeriveInput,
+    Field, Fields, GenericArgument, GenericParam, Generics, Ident, LitStr, PathArguments, Type,
+    TypePath, WherePredicate,
 };
 
 #[proc_macro_derive(CustomDebug, attributes(debug))]
 pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
+    let bound: Option<DebugBound> = match input
+        .attrs
+        .iter()
+        .map(outer_debug_attr)
+        .collect::<syn::Result<Vec<_>>>()
+    {
+        Ok(predicates) => predicates.into_iter().fold(None, |a, b| a.or(b)),
+        Err(err) => {
+            let err = err.to_compile_error();
+            return quote! {
+                #err
+            }
+            .into();
+        }
+    };
+
     let name = input.ident;
     let lit_name = LitStr::new(&name.to_string(), name.span());
 
-    let generics = add_trait_bounds(input.generics, &input.data);
+    let generics = add_trait_bounds(input.generics, &input.data, bound);
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     let fields_debug = fields(&input.data).map(field_debug);
 
@@ -28,20 +45,62 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     .into()
 }
 
-fn add_trait_bounds(mut generics: Generics, data: &Data) -> Generics {
+struct DebugBound {
+    generic: Option<Ident>,
+    predicate: WherePredicate,
+}
+
+fn outer_debug_attr(attr: &Attribute) -> syn::Result<Option<DebugBound>> {
+    if attr.path().is_ident("debug") {
+        let mut bound: Option<DebugBound> = None;
+        attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("bound") {
+                let value = meta.value()?;
+                let lit = value.parse::<LitStr>()?;
+                let predicate = syn::parse_str::<WherePredicate>(&lit.value())?;
+                let generic: Option<Ident> = match predicate {
+                    WherePredicate::Type(ref p_ty) => match &p_ty.bounded_ty {
+                        Type::Path(TypePath { path, .. }) => {
+                            if path.segments.len() > 1 {
+                                let segment = path.segments.first().unwrap();
+                                Some(segment.ident.clone())
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                bound = Some(DebugBound { generic, predicate });
+            }
+            Ok(())
+        })?;
+        return Ok(bound);
+    }
+    Ok(None)
+}
+
+fn add_trait_bounds(mut generics: Generics, data: &Data, bound: Option<DebugBound>) -> Generics {
     generics.make_where_clause();
     if let Some(where_clause) = generics.where_clause.as_mut() {
+        if let Some(DebugBound { predicate, .. }) = bound.as_ref() {
+            where_clause.predicates.push(predicate.clone());
+        }
         for param in &mut generics.params {
             if let GenericParam::Type(ref mut type_param) = param {
                 let phantom_data = fields(data)
                     .map(|field| is_phantom_generic_ty(field, &type_param.ident))
-                    .fold(false, |a, b| a || b);
+                    .any(|a| a);
                 let associated_types: Vec<&Type> = fields(data)
                     .filter_map(|field| get_associated_ty(field, &type_param.ident))
                     .collect();
-                if !phantom_data && associated_types.len() == 0 {
+                let bound_attr = bound.as_ref().is_some_and(|DebugBound { generic, .. }| {
+                    generic.as_ref().is_some_and(|g| *g == type_param.ident)
+                });
+                if !phantom_data && associated_types.is_empty() && !bound_attr {
                     type_param.bounds.push(parse_quote!(std::fmt::Debug));
-                } else if associated_types.len() > 0 {
+                } else {
                     associated_types.iter().for_each(|ty| {
                         where_clause
                             .predicates
@@ -55,10 +114,8 @@ fn add_trait_bounds(mut generics: Generics, data: &Data) -> Generics {
 }
 
 fn is_phantom_generic_ty(field: &Field, generic_ty: &Ident) -> bool {
-    if let Some(ty) = get_inner_ty(field, "PhantomData") {
-        if let Type::Path(ty) = ty {
-            return ty.path.get_ident().is_some_and(|ty| ty == generic_ty);
-        }
+    if let Some(Type::Path(ty)) = get_inner_ty(field, "PhantomData") {
+        return ty.path.get_ident().is_some_and(|ty| ty == generic_ty);
     }
     false
 }
