@@ -2,7 +2,7 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{
     parse_macro_input, parse_quote, AngleBracketedGenericArguments, Data, DeriveInput, Field,
-    Fields, GenericArgument, GenericParam, Generics, Ident, LitStr, PathArguments, Type,
+    Fields, GenericArgument, GenericParam, Generics, Ident, LitStr, PathArguments, Type, TypePath,
 };
 
 #[proc_macro_derive(CustomDebug, attributes(debug))]
@@ -29,13 +29,25 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 }
 
 fn add_trait_bounds(mut generics: Generics, data: &Data) -> Generics {
-    for param in &mut generics.params {
-        if let GenericParam::Type(ref mut type_param) = param {
-            if !fields(data)
-                .map(|field| is_phantom_generic_ty(field, &type_param.ident))
-                .fold(false, |a, b| a || b)
-            {
-                type_param.bounds.push(parse_quote!(std::fmt::Debug));
+    generics.make_where_clause();
+    if let Some(where_clause) = generics.where_clause.as_mut() {
+        for param in &mut generics.params {
+            if let GenericParam::Type(ref mut type_param) = param {
+                let phantom_data = fields(data)
+                    .map(|field| is_phantom_generic_ty(field, &type_param.ident))
+                    .fold(false, |a, b| a || b);
+                let associated_types: Vec<&Type> = fields(data)
+                    .filter_map(|field| get_associated_ty(field, &type_param.ident))
+                    .collect();
+                if !phantom_data && associated_types.len() == 0 {
+                    type_param.bounds.push(parse_quote!(std::fmt::Debug));
+                } else if associated_types.len() > 0 {
+                    associated_types.iter().for_each(|ty| {
+                        where_clause
+                            .predicates
+                            .push(parse_quote!(#ty: std::fmt::Debug))
+                    });
+                }
             }
         }
     }
@@ -69,6 +81,32 @@ fn get_inner_ty<'a>(field: &'a Field, outer: &str) -> Option<&'a Type> {
             let generic_arg = args.first().unwrap();
             if let GenericArgument::Type(ty) = generic_arg {
                 return Some(ty);
+            }
+        }
+    }
+    None
+}
+
+fn get_associated_ty<'a>(field: &'a Field, generic_ty: &Ident) -> Option<&'a Type> {
+    if let Type::Path(ty) = &field.ty {
+        if ty.path.segments.len() != 1 {
+            return None;
+        }
+        let segment = ty.path.segments.first().unwrap();
+        if let PathArguments::AngleBracketed(AngleBracketedGenericArguments { args, .. }) =
+            &segment.arguments
+        {
+            if args.len() != 1 {
+                return None;
+            }
+            let generic_arg = args.first().unwrap();
+            if let GenericArgument::Type(ty) = generic_arg {
+                if let Type::Path(TypePath { path, .. }) = ty {
+                    let segment = path.segments.first()?;
+                    if segment.ident == *generic_ty && path.segments.len() > 1 {
+                        return Some(ty);
+                    }
+                }
             }
         }
     }
