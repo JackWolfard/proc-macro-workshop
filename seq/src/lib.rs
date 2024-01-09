@@ -1,5 +1,5 @@
+use proc_macro2::TokenStream;
 use quote::quote;
-// use proc_macro2::TokenStream;
 use syn::parse::{Parse, ParseStream};
 use syn::{braced, parse_macro_input, token, Ident, LitInt, Result, Token};
 
@@ -11,6 +11,7 @@ struct Sequence {
     dotdot_token: Token![..],
     end: LitInt,
     brace_token: token::Brace,
+    content: TokenStream,
 }
 
 impl Parse for Sequence {
@@ -23,6 +24,7 @@ impl Parse for Sequence {
             dotdot_token: input.parse()?,
             end: input.parse()?,
             brace_token: braced!(content in input),
+            content: content.parse::<TokenStream>()?,
         })
     }
 }

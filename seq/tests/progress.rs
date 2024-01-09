@@ -2,7 +2,7 @@
 fn tests() {
     let t = trybuild::TestCases::new();
     t.pass("examples/01-parse-header.rs");
-    //t.pass("examples/02-parse-body.rs");
+    t.pass("examples/02-parse-body.rs");
     //t.compile_fail("examples/03-expand-four-errors.rs");
     //t.pass("examples/04-paste-ident.rs");
     //t.pass("examples/05-repeat-section.rs");
