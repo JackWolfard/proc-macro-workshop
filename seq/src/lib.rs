@@ -1,7 +1,6 @@
-use std::ops::Range;
-
 use proc_macro2::{Delimiter, Group, Literal, Spacing, TokenStream, TokenTree};
 use quote::{format_ident, TokenStreamExt};
+use std::ops::Range;
 use syn::parse::{Parse, ParseStream};
 use syn::{braced, parse_macro_input, token, Ident, LitInt, Result, Token};
 
@@ -10,7 +9,8 @@ struct Sequence {
     ident: Ident,
     _in_token: Token![in],
     start: usize,
-    _dotdot_token: Token![..],
+    _exclusive_range: Option<Token![..]>,
+    _inclusive_range: Option<Token![..=]>,
     end: usize,
     _brace_token: token::Brace,
     content: TokenStream,
@@ -18,13 +18,23 @@ struct Sequence {
 
 impl Parse for Sequence {
     fn parse(input: ParseStream) -> Result<Self> {
+        let ident = input.parse()?;
+        let _in_token = input.parse()?;
+        let start = input.parse::<LitInt>()?.base10_parse()?;
+        let is_inclusive = input.peek(Token![..=]);
+        let (_exclusive_range, _inclusive_range) = match is_inclusive {
+            true => (None, Some(input.parse()?)),
+            false => (Some(input.parse()?), None),
+        };
+        let end = input.parse::<LitInt>()?.base10_parse::<usize>()? + is_inclusive as usize;
         let content;
         Ok(Sequence {
-            ident: input.parse()?,
-            _in_token: input.parse()?,
-            start: input.parse::<LitInt>()?.base10_parse()?,
-            _dotdot_token: input.parse()?,
-            end: input.parse::<LitInt>()?.base10_parse()?,
+            ident,
+            _in_token,
+            start,
+            _exclusive_range,
+            _inclusive_range,
+            end,
             _brace_token: braced!(content in input),
             content: content.parse::<TokenStream>()?,
         })
