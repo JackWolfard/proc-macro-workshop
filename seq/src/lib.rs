@@ -137,7 +137,9 @@ fn substitute(stream: TokenStream, victim: &Ident, substitution: &Literal) -> To
             }
             Some(TokenTree::Ident(ident)) => {
                 if ident == victim {
-                    tokens[i] = Some(substitution.clone().into());
+                    let mut substitution = substitution.clone();
+                    substitution.set_span(ident.span());
+                    tokens[i] = Some(substitution.into());
                 }
             }
             Some(TokenTree::Punct(punct)) => {
@@ -148,7 +150,8 @@ fn substitute(stream: TokenStream, victim: &Ident, substitution: &Literal) -> To
                         ) = <&[Option<TokenTree>; 3]>::try_from(slice)
                         {
                             if end == victim {
-                                let ident = format_ident!("{start}{substitution}");
+                                let ident =
+                                    format_ident!("{start}{substitution}", span = start.span());
                                 tokens[i - 1] = Some(ident.into());
                                 tokens[i] = None;
                                 tokens[i + 1] = None;
