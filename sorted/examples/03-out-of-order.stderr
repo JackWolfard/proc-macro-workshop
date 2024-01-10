@@ -1,5 +1,5 @@
 error: SomethingFailed should sort before ThatFailed
-  --> tests/03-out-of-order.rs:20:5
+  --> examples/03-out-of-order.rs:20:5
    |
 20 |     SomethingFailed,
    |     ^^^^^^^^^^^^^^^
