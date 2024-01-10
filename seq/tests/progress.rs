@@ -9,5 +9,5 @@ fn tests() {
     t.pass("examples/06-init-array.rs");
     t.pass("examples/07-inclusive-range.rs");
     t.compile_fail("examples/08-ident-span.rs");
-    //t.pass("examples/09-interaction-with-macrorules.rs");
+    t.pass("examples/09-interaction-with-macrorules.rs");
 }
