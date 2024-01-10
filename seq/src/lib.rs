@@ -1,5 +1,5 @@
-use proc_macro2::{Literal, TokenStream, TokenTree};
-use quote::TokenStreamExt;
+use proc_macro2::{Literal, Spacing, TokenStream, TokenTree};
+use quote::{format_ident, TokenStreamExt};
 use syn::parse::{Parse, ParseStream};
 use syn::{braced, parse_macro_input, token, Ident, LitInt, Result, Token};
 
@@ -52,25 +52,40 @@ pub fn seq(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 }
 
 fn substitute(stream: TokenStream, victim: &Ident, substitution: &Literal) -> TokenStream {
-    let mut tokens = Vec::from_iter(stream);
+    let mut tokens = Vec::from_iter(stream.into_iter().map(Some));
 
     let mut i = 0;
     while i < tokens.len() {
         let token = &tokens[i];
-        let replacement: Option<TokenTree> = match token {
-            TokenTree::Group(group) => {
+        match token {
+            Some(TokenTree::Group(group)) => {
                 let stream = substitute(group.stream(), victim, substitution);
                 let group = proc_macro2::Group::new(group.delimiter(), stream);
-                Some(group.into())
+                tokens[i] = Some(group.into())
             }
-            TokenTree::Ident(ident) => ident.eq(victim).then_some(substitution.clone().into()),
-            _ => None,
+            Some(TokenTree::Ident(ident)) => {
+                if ident == victim {
+                    tokens[i] = Some(substitution.clone().into());
+                }
+            }
+            Some(TokenTree::Punct(punct)) => {
+                if punct.as_char() == '~' && punct.spacing() == Spacing::Alone {
+                    if let Ok([Some(TokenTree::Ident(start)), .., Some(TokenTree::Ident(end))]) =
+                        <&[Option<TokenTree>; 3]>::try_from(&tokens[i - 1..i + 2])
+                    {
+                        if end == victim {
+                            let ident = format_ident!("{start}{substitution}");
+                            tokens[i - 1] = Some(ident.into());
+                            tokens[i] = None;
+                            tokens[i + 1] = None;
+                        }
+                    }
+                }
+            }
+            _ => (),
         };
-        if let Some(replacement) = replacement {
-            tokens[i] = replacement;
-        }
         i += 1;
     }
 
-    TokenStream::from_iter(tokens)
+    TokenStream::from_iter(tokens.into_iter().flatten())
 }
