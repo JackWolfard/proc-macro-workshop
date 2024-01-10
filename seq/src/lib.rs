@@ -96,8 +96,8 @@ fn repeat(stream: TokenStream, victim: &Ident, sequence: Range<usize>) -> TokenS
     let mut i = 0;
     while i < tokens.len() {
         if let TokenTree::Group(group) = &tokens[i] {
-            let stream = repeat(group.stream(), victim, sequence.clone());
-            output.push(Group::new(group.delimiter(), stream).into());
+            let group_stream = repeat(group.stream(), victim, sequence.clone());
+            output.push(Group::new(group.delimiter(), group_stream).into());
         } else if let Some(group_stream) = repeat_annotation(tokens.as_slice(), i) {
             for j in sequence.clone() {
                 let substitution = Literal::usize_unsuffixed(j);
