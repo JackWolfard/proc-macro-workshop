@@ -1,8 +1,8 @@
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote, TokenStreamExt};
 use syn::{
-    parse_macro_input, parse_quote, spanned::Spanned, Error, Expr, ExprLit, ExprRange, Field, Item,
-    ItemStruct, Lit, LitInt, RangeLimits, Result, Token,
+    parse_macro_input, parse_quote, punctuated::Punctuated, spanned::Spanned, Error, Expr, ExprLit,
+    ExprRange, Field, Item, ItemStruct, Lit, LitInt, RangeLimits, Result, Token, Type,
 };
 
 #[proc_macro_attribute]
@@ -32,10 +32,99 @@ fn bitfield_impl(item: Item) -> Result<TokenStream> {
             });
             let plus: Token![+] = parse_quote!(+);
             size.append_separated(sizes, plus);
+            let mut punct = Punctuated::<Type, Token![+]>::new();
+            punct.push(parse_quote!(bitfield::Zero::BITS));
+            let methods = fields(&item)?
+                .scan(punct, |offset, f| {
+                    if let Some(ref ident) = f.ident {
+                        let ty = &f.ty;
+                        let getter = format_ident!("get_{ident}");
+                        let setter = format_ident!("set_{ident}");
+                        let output = Some(Ok(quote! {
+                            fn #getter(&self) -> u64 {
+                                self.get::<#ty>(#offset)
+                            }
+
+                            fn #setter(&mut self, value: u64) {
+                                self.set::<#ty>(#offset, value);
+                            }
+                        }));
+                        offset.push(parse_quote!(#ty::BITS));
+                        output
+                    } else {
+                        Some(Err(Error::new(
+                            f.span(),
+                            "expected field to have identifier",
+                        )))
+                    }
+                })
+                .collect::<Result<Vec<_>>>()?;
             Ok(quote! {
                 #[repr(C)]
+                #[derive(Default)]
                 pub struct #ident {
                     data: [u8; (#size) / 8],
+                }
+
+                impl #ident {
+                    fn new() -> Self {
+                        Self::default()
+                    }
+
+                    fn get<T: Specifier>(&self, offset: usize) -> u64 {
+                        let start_byte = offset / 8;
+                        let start_offset = offset % 8;
+                        let mut data = 0;
+                        let bits_to_read = T::BITS;
+                        let mut bits_read = 0;
+                        let mut i = 0;
+                        while bits_read < bits_to_read {
+                            let mut byte = self.data[start_byte + i] as u64;
+                            let mut bits_reading = 8;
+                            if i == 0 {
+                                byte >>= start_offset;
+                                bits_reading -= start_offset;
+                            }
+                            let bits_left = bits_to_read - bits_read;
+                            if bits_left <= 8 && bits_left < bits_reading {
+                                bits_reading = bits_left;
+                            }
+                            let mask = (1 << bits_reading) - 1;
+                            data |= (byte & mask) << bits_read;
+                            bits_read += bits_reading;
+                            i += 1;
+                        }
+                        data
+                    }
+
+                    fn set<T: Specifier>(&mut self, offset: usize, mut value: u64) {
+                        let start_byte = offset / 8;
+                        let start_offset = offset % 8;
+                        let bits_to_write = T::BITS;
+                        let mut bits_written = 0;
+                        let mut i = 0;
+                        while bits_written < bits_to_write {
+                            let mut bits_reading = 8;
+                            let mut shift = 0;
+                            if i == 0 {
+                                bits_reading -= start_offset;
+                                shift = start_offset;
+                            }
+                            let bits_left = bits_to_write - bits_written;
+                            if bits_left <= 8 && bits_left < bits_reading {
+                                bits_reading = bits_left;
+                            }
+                            let mask = (1 << bits_reading) - 1;
+                            let byte = value & mask;
+                            value >>= bits_reading;
+                            self.data[start_byte + i] &= !((mask << shift) as u8);
+                            self.data[start_byte + i] |= (byte << shift) as u8;
+                            bits_written += bits_reading;
+                            i += 1;
+                        }
+                    }
+
+                    #(#methods)*
                 }
             })
         }

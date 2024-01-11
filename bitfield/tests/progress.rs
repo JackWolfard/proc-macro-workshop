@@ -3,7 +3,7 @@ fn tests() {
     let t = trybuild::TestCases::new();
     t.pass("examples/01-specifier-types.rs");
     t.pass("examples/02-storage.rs");
-    //t.pass("examples/03-accessors.rs");
+    t.pass("examples/03-accessors.rs");
     //t.compile_fail("examples/04-multiple-of-8bits.rs");
     //t.pass("examples/05-accessor-signatures.rs");
     //t.pass("examples/06-enums.rs");

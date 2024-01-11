@@ -17,4 +17,10 @@ pub trait Specifier {
     const BITS: usize;
 }
 
+pub enum Zero {}
+
+impl Specifier for Zero {
+    const BITS: usize = 0;
+}
+
 bit_specifier!(1..64);
