@@ -134,10 +134,7 @@ fn sorted_impl(sort: Sort) -> Result<Sort> {
                         Pat::Path(ref pat) => Ok(SortElement::Path(pat.path.clone())),
                         Pat::Struct(ref pat) => Ok(SortElement::Path(pat.path.clone())),
                         Pat::TupleStruct(ref pat) => Ok(SortElement::Path(pat.path.clone())),
-                        _ => Err(Error::new_spanned(
-                            a,
-                            "#[sorted] cannot handle this pattern",
-                        )),
+                        _ => Err(Error::new_spanned(&a.pat, "unsupported by #[sorted]")),
                     })
                     .collect::<Result<Vec<_>>>()?,
             );
