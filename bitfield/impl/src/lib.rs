@@ -1,19 +1,56 @@
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote};
+use quote::{format_ident, quote, TokenStreamExt};
 use syn::{
-    parse_macro_input, parse_quote, spanned::Spanned, Error, Expr, ExprLit, ExprRange, Lit, LitInt,
-    RangeLimits, Result,
+    parse_macro_input, parse_quote, spanned::Spanned, Error, Expr, ExprLit, ExprRange, Field, Item,
+    ItemStruct, Lit, LitInt, RangeLimits, Result, Token,
 };
 
 #[proc_macro_attribute]
 pub fn bitfield(
-    args: proc_macro::TokenStream,
+    _: proc_macro::TokenStream,
     input: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
-    let _ = args;
-    let _ = input;
+    let input = parse_macro_input!(input as Item);
 
-    unimplemented!()
+    match bitfield_impl(input) {
+        Ok(output) => output,
+        Err(error) => error.into_compile_error(),
+    }
+    .into()
+}
+
+fn bitfield_impl(item: Item) -> Result<TokenStream> {
+    match item {
+        Item::Struct(item) => {
+            let ident = &item.ident;
+            let mut size = TokenStream::new();
+            let sizes = fields(&item)?.map(|f| {
+                let ty = &f.ty;
+                quote! {
+                    #ty::BITS
+                }
+            });
+            let plus: Token![+] = parse_quote!(+);
+            size.append_separated(sizes, plus);
+            Ok(quote! {
+                #[repr(C)]
+                pub struct #ident {
+                    data: [u8; (#size) / 8],
+                }
+            })
+        }
+        _ => Err(Error::new(item.span(), "expected struct")),
+    }
+}
+
+fn fields(item: &ItemStruct) -> Result<impl Iterator<Item = &Field>> {
+    match &item.fields {
+        syn::Fields::Named(fields) => Ok(fields.named.iter()),
+        _ => Err(Error::new(
+            item.fields.span(),
+            "expected fields to be named",
+        )),
+    }
 }
 
 #[proc_macro]
