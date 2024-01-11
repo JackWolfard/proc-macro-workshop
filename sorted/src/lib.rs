@@ -1,9 +1,11 @@
+use std::fmt::Display;
+
 use proc_macro2::TokenStream;
 use quote::{quote, ToTokens};
 use syn::{
     parse_macro_input,
     visit_mut::{self, VisitMut},
-    Attribute, Error, ExprMatch, Ident, Item, ItemFn, Meta, Pat, Result,
+    Attribute, Error, ExprMatch, Ident, Item, ItemFn, Meta, Pat, Path, Result,
 };
 
 #[proc_macro_attribute]
@@ -60,12 +62,63 @@ impl ToTokens for Sort {
     }
 }
 
+#[derive(Debug)]
+enum SortElement {
+    Ident(Ident),
+    Path(Path),
+}
+
+impl PartialEq for SortElement {
+    fn eq(&self, other: &Self) -> bool {
+        self.to_string().eq(&other.to_string())
+    }
+}
+
+impl PartialOrd for SortElement {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.to_string().partial_cmp(&other.to_string())
+    }
+}
+
+impl ToTokens for SortElement {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        match self {
+            SortElement::Ident(ident) => ident.to_tokens(tokens),
+            SortElement::Path(path) => path.to_tokens(tokens),
+        }
+    }
+}
+
+impl Display for SortElement {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SortElement::Ident(ident) => write!(f, "{ident}"),
+            SortElement::Path(path) => {
+                if path.leading_colon.is_some() {
+                    write!(f, "::")?;
+                }
+                if let Some(segment) = path.segments.first() {
+                    write!(f, "{}", segment.ident)?;
+                }
+                for segment in path.segments.iter().skip(1) {
+                    write!(f, "::{}", segment.ident)?;
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
 fn sorted_impl(sort: Sort) -> Result<Sort> {
-    let mut variants: Vec<Ident> = Vec::new();
+    let mut variants: Vec<SortElement> = Vec::new();
     match sort {
         Sort::Item(ref item) => {
             if let Item::Enum(item) = item {
-                variants.extend(item.variants.iter().map(|v| v.ident.clone()));
+                variants.extend(
+                    item.variants
+                        .iter()
+                        .map(|v| SortElement::Ident(v.ident.clone())),
+                );
             } else {
                 return Err(Error::new_spanned(
                     item,
@@ -77,16 +130,14 @@ fn sorted_impl(sort: Sort) -> Result<Sort> {
             variants.extend(
                 m.arms
                     .iter()
-                    .map(|a| {
-                        if let Pat::TupleStruct(ref pat) = a.pat {
-                            if let Some(segment) = pat.path.segments.first() {
-                                return Ok(segment.ident.clone());
-                            }
-                        }
-                        Err(Error::new_spanned(
+                    .map(|a| match a.pat {
+                        Pat::Path(ref pat) => Ok(SortElement::Path(pat.path.clone())),
+                        Pat::Struct(ref pat) => Ok(SortElement::Path(pat.path.clone())),
+                        Pat::TupleStruct(ref pat) => Ok(SortElement::Path(pat.path.clone())),
+                        _ => Err(Error::new_spanned(
                             a,
                             "#[sorted] cannot handle this pattern",
-                        ))
+                        )),
                     })
                     .collect::<Result<Vec<_>>>()?,
             );
