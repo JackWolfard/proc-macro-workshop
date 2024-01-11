@@ -5,7 +5,7 @@ use quote::{quote, ToTokens};
 use syn::{
     parse_macro_input,
     visit_mut::{self, VisitMut},
-    Attribute, Error, ExprMatch, Ident, Item, ItemFn, Meta, Pat, Path, Result,
+    Attribute, Error, ExprMatch, Ident, Item, ItemFn, Meta, Pat, Path, Result, Token,
 };
 
 #[proc_macro_attribute]
@@ -66,6 +66,7 @@ impl ToTokens for Sort {
 enum SortElement {
     Ident(Ident),
     Path(Path),
+    Wild(Token![_]),
 }
 
 impl PartialEq for SortElement {
@@ -85,6 +86,7 @@ impl ToTokens for SortElement {
         match self {
             SortElement::Ident(ident) => ident.to_tokens(tokens),
             SortElement::Path(path) => path.to_tokens(tokens),
+            SortElement::Wild(wild) => wild.to_tokens(tokens),
         }
     }
 }
@@ -105,6 +107,7 @@ impl Display for SortElement {
                 }
                 Ok(())
             }
+            SortElement::Wild(_) => write!(f, "_"),
         }
     }
 }
@@ -131,9 +134,11 @@ fn sorted_impl(sort: Sort) -> Result<Sort> {
                 m.arms
                     .iter()
                     .map(|a| match a.pat {
+                        Pat::Ident(ref pat) => Ok(SortElement::Ident(pat.ident.clone())),
                         Pat::Path(ref pat) => Ok(SortElement::Path(pat.path.clone())),
                         Pat::Struct(ref pat) => Ok(SortElement::Path(pat.path.clone())),
                         Pat::TupleStruct(ref pat) => Ok(SortElement::Path(pat.path.clone())),
+                        Pat::Wild(ref pat) => Ok(SortElement::Wild(pat.underscore_token)),
                         _ => Err(Error::new_spanned(&a.pat, "unsupported by #[sorted]")),
                     })
                     .collect::<Result<Vec<_>>>()?,
