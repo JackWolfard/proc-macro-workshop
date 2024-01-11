@@ -8,11 +8,17 @@ pub fn sorted(
 ) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as Item);
 
-    let output = match sorted_impl(input) {
+    let output = match sorted_impl(input.clone()) {
         Ok(output) => quote! {
             #output
         },
-        Err(output) => output.into_compile_error(),
+        Err(output) => {
+            let output = output.into_compile_error();
+            quote! {
+                    #output
+                    #input
+            }
+        }
     };
 
     output.into()
