@@ -1,4 +1,4 @@
-error: #[sorted] cannot be applied to things other than enum
+error: #[sorted] cannot be applied to things other than enum or match expressions
   --> examples/02-not-enum.rs:32:1
    |
 32 | / pub struct Error {
