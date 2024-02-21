@@ -1,8 +1,12 @@
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote, TokenStreamExt};
 use syn::{
-    parse_macro_input, parse_quote, punctuated::Punctuated, spanned::Spanned, Error, Expr, ExprLit,
-    ExprRange, Field, Item, ItemStruct, Lit, LitInt, RangeLimits, Result, Token, Type,
+    parse::{Parse, ParseStream},
+    parse_macro_input, parse_quote,
+    punctuated::Punctuated,
+    spanned::Spanned,
+    Error, Expr, ExprLit, ExprRange, Field, Ident, Item, ItemStruct, Lit, LitInt, RangeLimits,
+    Result, Token, Type,
 };
 
 #[proc_macro_attribute]
@@ -126,6 +130,10 @@ fn bitfield_impl(item: Item) -> Result<TokenStream> {
 
                     #(#methods)*
                 }
+
+                impl bitfield::checks::CheckTotalSizeIsMultipleOf8 for #ident {
+                    type Size = bitfield::checks::TotalSize<[(); (#size) % 8]>;
+                }
             })
         }
         _ => Err(Error::new(item.span(), "expected struct")),
@@ -191,4 +199,34 @@ fn bit_specifier_impl(range: ExprRange) -> Result<TokenStream> {
         }
         _ => Err(Error::new(error_span, "expected literal range of ints")),
     }
+}
+
+struct MultipleOf8 {
+    lit: LitInt,
+    _comma: Token![,],
+    ident: Ident,
+}
+
+impl Parse for MultipleOf8 {
+    fn parse(input: ParseStream) -> Result<Self> {
+        Ok(MultipleOf8 {
+            lit: input.parse()?,
+            _comma: input.parse()?,
+            ident: input.parse()?,
+        })
+    }
+}
+
+#[proc_macro]
+pub fn multiple_of_8(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let MultipleOf8 { lit, ident, .. } = parse_macro_input!(input as MultipleOf8);
+
+    quote! {
+        pub enum #ident {}
+
+        impl KnownSize for TotalSize<[(); #lit]> {
+            type Check = #ident;
+        }
+    }
+    .into()
 }
